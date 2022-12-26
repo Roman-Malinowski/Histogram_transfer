@@ -38,7 +38,7 @@ def create_order_3_channels(img, img_smooth=None, complete=False):
         assert img_smooth is not None, "For a complete ordering, there must be an img_smoothed given"
         
         img_smooth_structured = img_smooth.copy()
-        img_smooth_structured.dtype = np.dtype([('H2', np.uint8), ('S2', np.uint8), ('V2', np.uint8)])
+        img_smooth_structured.dtype = np.dtype([('H', np.uint8), ('S', np.uint8), ('V', np.uint8)])
 
         # Finding values that cannot be completely ordered with HSV
         values, counts = np.unique(img_structured, return_counts=True)

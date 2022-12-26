@@ -13,13 +13,29 @@ def cvt_ruderman(img_XYZ):
     img_LMS = np.matmul(img_XYZ, XYZ2LMS.T)
     log_img = np.log10(img_LMS)
     
-    A = np.diag([1/np.sqrt(3), 1/np.sqrt(6), 1/np.sqrt(2)])
+    A = np.diag([np.sqrt(3)/3, np.sqrt(6)/6, np.sqrt(2)/2])
     B = np.array([[1, 1, 1], [1, 1, -2], [1, -1, 0]])
     LMS2ruderman = np.matmul(B.T, A.T)
     
-    img_ruderman = np.matmul(log_img, LMS2ruderman)
+    log_ruderman = np.matmul(log_img, LMS2ruderman)
     
-    return log_img, img_ruderman
+    return log_img, log_ruderman
+
+
+def cvt_back_ruderman(log_ruderman):
+    
+    A = np.diag([np.sqrt(3)/3, np.sqrt(6)/6, np.sqrt(2)/2])
+    B = np.array([[1, 1, 1], [1, 1, -2], [1, -1, 0]])
+    ruderman2LMS = np.matmul(A, B)
+    
+    log_img = np.matmul(log_ruderman, ruderman2LMS)
+    lms = 10**log_img
+    XYZ2LMS = np.array([[0.3897, 0.6890, -0.0787], [-0.2298, 1.1834, 0.0464], [0, 0, 1]])
+    LMS2XYZ = np.linalg.inv(XYZ2LMS.T)
+    
+    img_XYZ = np.matmul(lms, LMS2XYZ)
+
+    return lms, img_XYZ
 
 
 def compare_covariances(list_paths: list) -> pd.DataFrame:
