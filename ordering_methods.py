@@ -1,7 +1,8 @@
 import numpy as np
+import pandas as pd
 
 
-def create_order_3_channels(img, img_smooth=None, complete=False):
+def create_order_3_channels(img, img_smooth=None):
     """
     Creates an order on the pixels of img based on their 3 channels.
     The order is a tuple of two arrays of length img.shape[:2].product(),
@@ -12,58 +13,35 @@ def create_order_3_channels(img, img_smooth=None, complete=False):
     inputs:
     img: np.array. A 3-channel image, typically a HSV or BGR image obtained with cv.cvtColor(X, cv.COLOR_BGR2HSV)
     
-    img_smooth: np.array. Optionnal. A smoothed version of img used for ranking pixels based on their neighbourhood
-    Must have the same dimension as img (typically using cv.GaussianBlur(img, (5, 5), 0)). Required if complete=True
-    
-    complete: bool. Optionnal. If complete=False, then the order will be arbitrary for pixels with same values of (HSV)
-    If complete=True, the order will rank pixels with same values based on the mean value of their neighbours.    
+    img_smooth: Optionnal. np.array. A smoothed version of img used for ranking pixels based on their neighbourhood
+    Must have the same dimension as img (typically using cv.GaussianBlur(img, (5, 5), 0)).
     
     ouput:
     order: (np.array, np.array). An array img.shape[:2].product().
     (order[0][i], order[1][i]) is the coordinates of the i-th pixel.
     """
     
-    img_structured = img.copy()
-    img_structured.dtype = np.dtype([('H', np.uint8), ('S', np.uint8), ('V', np.uint8)]) 
-    """
-    [[[[(3, 5, 5)]], [[(0, 1, 2)]]], [[[(3, 4, 5)]], [[(3, 6, 6)]]], [[[(6, 6, 8)]], [[(6, 6, 8)]]], [[[(4, 6, 1)]], [[(1, 0, 0)]]]]
-    """
-    n_cols = img_structured.shape[1]
-    order = np.argsort(img_structured, axis=None, order=("H", "S", "V"))
-    """
-    [1 7 2 0 3 6 4 5]
-    """
-    if complete:
-        
-        assert img_smooth is not None, "For a complete ordering, there must be an img_smoothed given"
-        
-        img_smooth_structured = img_smooth.copy()
-        img_smooth_structured.dtype = np.dtype([('H', np.uint8), ('S', np.uint8), ('V', np.uint8)])
-
-        # Finding values that cannot be completely ordered with HSV
-        values, counts = np.unique(img_structured, return_counts=True)
-        """
-        values = [(0, 1, 2), (1, 0, 0), (3, 4, 5), (3, 5, 5), (3, 6, 6), (4, 6, 1), (6, 6, 8)]
-        count = [1, 1, 1, 1, 1, 1, 2]
-
-        """
-        tot = np.sum(counts>1)
-        for i, val in enumerate(values[counts>1]):
-            print("\r%s/%s"%(i+1, tot), end="")
-
-            smooth_val = img_smooth_structured[img_structured==val]  # [(5, 3, 4), (5, 5, 6)]
-            order_val = np.argsort(smooth_val, axis=None, order=("H", "S", "V"))
-
-            partial_order = (img_structured[np.unravel_index(order, img_structured.shape[:2])]==val).flatten()  # Bool array with True when 'order' corresponds to 'val' 
-            order[partial_order] = order[partial_order][order_val] # [4, 5]
-
-    order = np.unravel_index(order, img_structured.shape[:2])
+    indices = np.indices(img.shape[:2])
     
-    print()
-    return order
+    if img_smooth is None:
+        data=np.column_stack((np.ravel(indices[0]), np.ravel(indices[1]),
+                              np.ravel(img[:,:,0]), np.ravel(img[:,:,1]), np.ravel(img[:,:,2])))
+
+        df = pd.DataFrame(columns=["row", "col", "ch1", "ch2", "ch3"], data=data)
+        df = df.sort_values(by=["ch1", "ch2", "ch3"])
+        
+    else:
+        data=np.column_stack((np.ravel(indices[0]), np.ravel(indices[1]),
+                              np.ravel(img[:,:,0]), np.ravel(img[:,:,1]), np.ravel(img[:,:,2]),
+                              np.ravel(img_smooth[:,:,0]), np.ravel(img_smooth[:,:,1]), np.ravel(img_smooth[:,:,2])))
+        
+        df = pd.DataFrame(columns=["row", "col", "ch1", "ch2", "ch3", "smooth1", "smooth2", "smooth3"], data=data)
+        df = df.sort_values(by=["ch1", "ch2", "ch3", "smooth1", "smooth2", "smooth3"])
+    
+    return (df["row"].to_numpy(), df["col"].to_numpy())
 
 
-def create_order_single_channel(img, img_smooth=None, complete=False):
+def create_order_single_channel(img, img_smooth=None):
     """
     Creates an order on the pixels of img.
     The order is a tuple of two arrays of length img.shape[:2].product(),
@@ -75,47 +53,27 @@ def create_order_single_channel(img, img_smooth=None, complete=False):
     img: np.array. A 1-channel image, typically a greyscale image obtained with cv.cvtColor(X, cv.COLOR_BGR2GRAY)
     
     img_smoothed: np.array. Optionnal. A smoothed version of img used for ranking pixels based on their neighbourhood
-    Must have the same dimension as img (typically using cv.GaussianBlur(img, (5, 5), 0)). Required if complete=True
-    
-    complete: bool. Optionnal. If complete=False, then the order will be arbitrary for pixels with same values
-    If complete=True, the order will rank pixels with same values based on the mean value of their neighbours.
-    
+    Must have the same dimension as img (typically using cv.GaussianBlur(img, (5, 5), 0)).
+       
     ouput:
     order: (np.array, np.array). An array img.shape[:2].product().
     (order[0][i], order[1][i]) is the coordinates of the i-th pixel.
     """
     
-    img_structured = img.copy()
-    """
-    [[3, 0], [2, 3], [8, 9], [5, 2]]
-    """
-
-    n_cols = img_structured.shape[1]
-    order = np.argsort(img_structured, axis=None)
-    """
-    [1 7 2 0 3 6 4 5]
-    """
-    if complete:
-        assert img_smooth is not None, "For a complete ordering, there must be an img_smoothed given"
-        img_smooth_structured = img_smooth.copy()
-        # Finding values that cannot be completely ordered with HSV
-        values, counts = np.unique(img_structured, return_counts=True)
-        """
-        values = [0, 2, 3, 5, 8, 9]
-        count = [1, 2, 2, 1, 1, 1]
-
-        """
-        tot = np.sum(counts>1)
-        for i, val in enumerate(values[counts>1]):
-            print("\r%s/%s"%(i+1, tot), end="")
-
-            smooth_val = img_smooth_structured[img_structured==val]
-            order_val = np.argsort(smooth_val, axis=None)
-
-            partial_order = (img_structured[np.unravel_index(order, img_structured.shape[:2])]==val).flatten()  # Bool array with True when 'order' corresponds to 'val' 
-            order[partial_order] = order[partial_order][order_val]
-
-    order = np.unravel_index(order, img_structured.shape[:2])
+    indices = np.indices(img.shape)
     
-    print()
-    return order
+    if img_smooth is None:
+        data=np.column_stack((np.ravel(indices[0]), np.ravel(indices[1]),
+                              np.ravel(img)))
+
+        df = pd.DataFrame(columns=["row", "col", "ch1"], data=data)
+        df = df.sort_values(by=["ch1"])
+        
+    else:
+        data=np.column_stack((np.ravel(indices[0]), np.ravel(indices[1]),
+                              np.ravel(img), np.ravel(img_smooth)))
+        
+        df = pd.DataFrame(columns=["row", "col", "ch1", "smooth1"], data=data)
+        df = df.sort_values(by=["ch1", "smooth1"])
+    
+    return (df["row"].to_numpy(), df["col"].to_numpy())
