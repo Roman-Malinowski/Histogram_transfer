@@ -8,34 +8,37 @@ import pandas as pd
 
 def cvt_ruderman(img_XYZ):
 
-    XYZ2LMS = np.array([[0.3897, 0.6890, -0.0787], [-0.2298, 1.1834, 0.0464], [0, 0, 1]])
+    A = np.array([[0.3897, 0.6890, -0.0787], [-0.2298, 1.1834, 0.0464], [0, 0, 1]])
+    B = np.diag([1/np.sqrt(3), 1/np.sqrt(6), 1/np.sqrt(2)])
+    C = np.array([[1, 1, 1], [1, 1, -2], [1, -1, 0]])
     
-    img_LMS = np.matmul(img_XYZ, XYZ2LMS.T)
-    log_img = np.log10(img_LMS)
+    img_LMS = np.matmul(img_XYZ, A.T)
+    log_LMS = np.log10(img_LMS)
     
-    A = np.diag([np.sqrt(3)/3, np.sqrt(6)/6, np.sqrt(2)/2])
-    B = np.array([[1, 1, 1], [1, 1, -2], [1, -1, 0]])
-    LMS2ruderman = np.matmul(B.T, A.T)
+    LMS2ruderman = np.matmul(C.T, B)  # B = B.T
     
-    log_ruderman = np.matmul(log_img, LMS2ruderman)
+    ruderman = np.matmul(log_LMS, LMS2ruderman)
     
-    return log_img, log_ruderman
+    return ruderman
 
 
-def cvt_back_ruderman(log_ruderman):
+def cvt_back_ruderman(ruderman):
     
-    A = np.diag([np.sqrt(3)/3, np.sqrt(6)/6, np.sqrt(2)/2])
-    B = np.array([[1, 1, 1], [1, 1, -2], [1, -1, 0]])
-    ruderman2LMS = np.matmul(A, B)
+    A = np.array([[0.3897, 0.6890, -0.0787], [-0.2298, 1.1834, 0.0464], [0, 0, 1]])
+    B_ = np.diag([np.sqrt(3)/3, np.sqrt(6)/6, np.sqrt(2)/2])
+    C = np.array([[1, 1, 1], [1, 1, -2], [1, -1, 0]])
     
-    log_img = np.matmul(log_ruderman, ruderman2LMS)
-    lms = 10**log_img
-    XYZ2LMS = np.array([[0.3897, 0.6890, -0.0787], [-0.2298, 1.1834, 0.0464], [0, 0, 1]])
-    LMS2XYZ = np.linalg.inv(XYZ2LMS.T)
+    ruderman2LMS = np.matmul(B_, C)  # B_.T = B_
+    log_LMS = np.matmul(ruderman, ruderman2LMS)
+    img_LMS = 10**log_LMS
     
-    img_XYZ = np.matmul(lms, LMS2XYZ)
+    
+    img_XYZ = np.matmul(img_LMS, np.linalg.inv(A.T))
+    
+    # img_XYZ[np.nonzero(~(img_XYZ>0))] = 0  # removes nan
+    # img_XYZ = np.round(img_XYZ).astype(dtype=a_correct_XYZ_image.dtype)  # int8 creates some issue (values from -128 to 127)
 
-    return lms, img_XYZ
+    return img_XYZ
 
 
 def compare_covariances(list_paths: list) -> pd.DataFrame:
@@ -55,9 +58,9 @@ def compare_covariances(list_paths: list) -> pd.DataFrame:
         image_YCrCb = cv.cvtColor(image_BGR, cv.COLOR_BGR2YCrCb)
         image_LUV = cv.cvtColor(image_BGR, cv.COLOR_BGR2Luv)
         image_XYZ = cv.cvtColor(image_BGR, cv.COLOR_BGR2XYZ)
-        image_LMS, image_ruderman = cvt_ruderman(image_XYZ)
+        image_ruderman = cvt_ruderman(image_XYZ)
 
-        dict_image = dict(zip(["BGR", "LAB", "HSV", "YCrCb", "LUV", "XYZ", "LMS", "RUDERMAN"], [image_BGR, image_LAB, image_HSV, image_YCrCb, image_LUV, image_XYZ, image_LMS, image_ruderman]))
+        dict_image = dict(zip(["BGR", "LAB", "HSV", "YCrCb", "LUV", "XYZ", "RUDERMAN"], [image_BGR, image_LAB, image_HSV, image_YCrCb, image_LUV, image_XYZ, image_ruderman]))
 
         for color_space, img in dict_image.items():
             channel_1, channel_2, channel_3 = img[:,:,0].flatten(), img[:,:,1].flatten(), img[:,:,2].flatten()
