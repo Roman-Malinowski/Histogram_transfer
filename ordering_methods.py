@@ -38,7 +38,7 @@ def create_order_3_channels(img, img_smooth=None):
         df = pd.DataFrame(columns=["row", "col", "ch1", "ch2", "ch3", "smooth1", "smooth2", "smooth3"], data=data)
         df = df.sort_values(by=["ch1", "ch2", "ch3", "smooth1", "smooth2", "smooth3"])
     
-    return (df["row"].to_numpy(), df["col"].to_numpy())
+    return (df["row"].to_numpy(dtype=int), df["col"].to_numpy(dtype=int))
 
 
 def create_order_single_channel(img, img_smooth=None):
@@ -76,4 +76,12 @@ def create_order_single_channel(img, img_smooth=None):
         df = pd.DataFrame(columns=["row", "col", "ch1", "smooth1"], data=data)
         df = df.sort_values(by=["ch1", "smooth1"])
     
-    return (df["row"].to_numpy(), df["col"].to_numpy())
+    return (df["row"].to_numpy(dtype=int), df["col"].to_numpy(dtype=int))
+
+
+def dist_RGB(r, g, b):
+    return np.sqrt(np.square(r) + np.square(g) + np.square(b))
+
+
+def transfer_with_dependence(img, img_smooth, img_ref, dist=dist_RGB):
+    
