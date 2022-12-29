@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import cv2
+import warnings
 
 
 def create_order_3_channels(img, img_smooth=None):
@@ -81,7 +82,11 @@ def create_order_single_channel(img, img_smooth=None):
     return df["row"].to_numpy(dtype=int), df["col"].to_numpy(dtype=int)
 
 
-def convert_independent_channels(img, img_ref):
+def transfer_independent_channels(img, img_ref):
+    """
+    Transfer each histogram of a multichannel image independently,
+    then reconstruct a mutlichannel image from each transfered channel
+    """
     channels = cv2.split(img)
     ref_channels = cv2.split(img_ref)
 
@@ -105,10 +110,25 @@ def convert_independent_channels(img, img_ref):
 # TODO Sort with a smooth ref too
 
 def transfer_with_dependence_euclidian(img, img_smooth, img_ref, seed=42):
+    """
+    Transfer the multidimension histogramm from one image to another.
+    For each pixel of the reference image (chosen at random),
+    finds the nearest pixel in the other image in term of Euclidian distance
+    """
     assert img.shape == img_ref.shape, "This method is implemented for images with the same number of pixels"
+    if img.dtype == np.dtype('uint8'):
+        warnings.warn("img dtype is unsigned integer. Casting to short integer to compute euclidian distance")
+        img = img.astype(dtype=np.short)
+
+    if img_ref.dtype == np.dtype('uint8'):
+        warnings.warn("img_ref dtype is unsigned integer. Casting to short integer to compute euclidian distance")
+        img_ref = img_ref.astype(dtype=np.short)
+
+    if img_smooth.dtype == np.dtype('uint8'):
+        warnings.warn("img_smooth dtype is unsigned integer. Casting to short integer to compute euclidian distance")
+        img_smooth = img_smooth.astype(dtype=np.short)
 
     indices = np.indices(img.shape[:2])
-
     data = np.column_stack((np.ravel(indices[0]), np.ravel(indices[1]),
                             np.ravel(img[:, :, 0]), np.ravel(img[:, :, 1]), np.ravel(img[:, :, 2]),
                             np.ravel(img_smooth[:, :, 0]), np.ravel(img_smooth[:, :, 1]),
@@ -149,39 +169,113 @@ def transfer_with_dependence_euclidian(img, img_smooth, img_ref, seed=42):
     return img_transferred
 
 
-def bad_transfer_with_dependence_euclidian(img, img_smooth, img_ref):
-    assert img.shape == img_ref.shape, "This method is implemented for images with the same number of pixels"
+def compute_square_euclidian_distance_matrix(img, img_ref):
+    """
+    Compute a matrix of squared distances between the pixel of an image (R**2 + G**2 + B**2)
+    img is an array of 3 channel pixels. img_ref is an array of 3 channel pixels
+    if img.shape = (N, 3) and img_ref.shape = (M, 3), then return a (M, N) matrix
+    Columns correspond to the flattened position of a pixel of img,
+    and rows to the flatten position of a pixel of img_ref
+    """
+    assert img.shape[-1] == 3 & img_ref.shape[-1] == 3, "img and img_ref should have 3 channels"
+    if img.dtype == np.dtype('uint8'):
+        warnings.warn("img dtype is unsigned integer. Casting to int32 to compute euclidian distance")
+        img = img.astype(dtype=np.int32)
 
-    indices = np.indices(img.shape[:2])
+    if img_ref.dtype == np.dtype('uint8'):
+        warnings.warn("img_ref dtype is unsigned integer. Casting to int32 to compute euclidian distance")
+        img_ref = img_ref.astype(dtype=np.int32)
 
-    data = np.column_stack((np.ravel(indices[0]), np.ravel(indices[1]),
-                            np.ravel(img[:, :, 0]), np.ravel(img[:, :, 1]), np.ravel(img[:, :, 2]),
-                            np.ravel(img_smooth[:, :, 0]), np.ravel(img_smooth[:, :, 1]),
-                            np.ravel(img_smooth[:, :, 2])))
+    ch1_img, ch1_ref = np.meshgrid(img[:, 0].flatten(), img_ref[:, 0].flatten(), sparse=True)
+    ch2_img, ch2_ref = np.meshgrid(img[:, 1].flatten(), img_ref[:, 1].flatten(), sparse=True)
+    ch3_img, ch3_ref = np.meshgrid(img[:, 2].flatten(), img_ref[:, 2].flatten(), sparse=True)
 
-    df = pd.DataFrame(columns=["row", "col", "ch1", "ch2", "ch3", "smooth1", "smooth2", "smooth3"], data=data)
-    df["d_0"] = np.sqrt(df["ch1"]**2 + df["ch2"]**2 + df["ch3"]**2)
-    df["d_ch1"] = np.sqrt((df["ch1"]-255)**2 + df["ch2"]**2 + df["ch3"]**2)
-    df["d_ch2"] = np.sqrt(df["ch1"]**2 + (df["ch2"]-255)**2 + df["ch3"]**2)
+    dist_img = np.square(ch1_img - ch1_ref) + np.square(ch2_img - ch2_ref) + np.square(ch3_img - ch3_ref)
 
-    df["d_smooth0"] = np.sqrt(df["smooth1"] ** 2 + df["smooth2"] ** 2 + df["smooth3"] ** 2)
-    df["d_smooth1"] = np.sqrt((df["smooth1"]-255) ** 2 + df["smooth2"] ** 2 + df["smooth3"] ** 2)
-    df["d_smooth2"] = np.sqrt(df["smooth1"] ** 2 + (df["smooth2"] - 255) ** 2 + df["smooth3"] ** 2)
+    return dist_img
 
-    df = df.sort_values(by=["d_0", "d_ch1", "d_ch2", "d_smooth0", "d_smooth1", "d_smooth2"])
 
-    indices_ref = np.indices(img_ref.shape[:2])
+def transfer_with_dependence_euclidian_heuristic(img, img_smooth, img_ref, batch_size=400, seed=42):
+    assert img.shape == img_ref, "Method only works for same shape images." \
+                                 "Please resample them so they have the same shape"
 
-    data_ref = np.column_stack((np.ravel(indices_ref[0]), np.ravel(indices_ref[1]),
-                                np.ravel(img_ref[:, :, 0]), np.ravel(img_ref[:, :, 1]), np.ravel(img_ref[:, :, 2])))
+    n_pixels = np.product(img_ref.shape[:2])
+    indices = np.arange(n_pixels)
 
-    df_ref = pd.DataFrame(columns=["row", "col", "ch1", "ch2", "ch3"], data=data_ref)
-    df_ref["d_0"] = np.sqrt(df_ref["ch1"]**2 + df_ref["ch2"]**2 + df_ref["ch3"]**2)
-    df_ref["d_ch1"] = np.sqrt((df_ref["ch1"]-255)**2 + df_ref["ch2"]**2 + df_ref["ch3"]**2)
-    df_ref["d_ch2"] = np.sqrt(df_ref["ch1"]**2 + (df_ref["ch2"]-255)**2 + df_ref["ch3"]**2)
+    # Choosing pixels from img_ref at random
+    rng = np.random.default_rng(seed)
+    indices_ref = rng.permutation(np.arange(n_pixels))
 
-    df_ref = df_ref.sort_values(by=["d_0", "d_ch1", "d_ch2"])
+    full_order = []
 
-    img_transferred = img.copy()
-    img_transferred[df["row"].to_numpy(dtype=int), df["col"].to_numpy(dtype=int), :] = df_ref[df_ref["row"].to_numpy(dtype=int), df_ref["col"].to_numpy(dtype=int), :]
-    return img_transferred
+    for k in range(n_pixels//batch_size+1):
+        # Splitting the random order of pixels in different batch for faster processing
+        i_min, i_max = k * batch_size, max((k + 1) * batch_size, n_pixels)
+        rows_ref, cols_ref = np.unravel_index(indices_ref[i_min:i_max], img_ref.shape[:2])
+
+        rows, cols = np.unravel_index(indices, img.shape[:2])
+
+        # Computing distance matrices
+        dist_img = compute_square_euclidian_distance_matrix(img[rows, cols, :], img_ref[rows_ref, cols_ref, :])
+        """
+        [[1, 0, 0, 2],
+         [5, 7, 9, 8],
+         [3, 1, 1, 2]]
+        """
+        dist_smooth_img = compute_square_euclidian_distance_matrix(img_smooth[rows, cols, :], img_ref[rows_ref, cols_ref, :])
+        """
+        [[4, 1, 2, 3],
+         [6, 6, 6, 6],
+         [9, 0, 3, 0]]
+        """
+
+        # Finding the minimal distances for each row
+        dist_min = np.tile(dist_img.min(axis=1), (dist_img.shape[1], 1)).T
+        """
+        [[0, 0, 0, 0],
+         [0, 0, 0, 0],
+         [1, 1, 1, 1]]
+        """
+
+        dist_min = np.isclose(dist_img, dist_min)
+        """
+        [[False, True, True, False],
+         [True, False, False, False],
+         [False, True, True, False]]
+        """
+
+        # For distances that are equal, sorting by neighbour
+        dist_smooth_img[~dist_min] = 200000  # More than dist_max=3*255**2
+        """
+        [[2e5, 1, 2, 2e5],
+         [6, 2e5, 2e5, 2e5],
+         [2e5, 0, 3, 2e5]]
+        """
+        pixel_min = np.argmin(dist_smooth_img, axis=1)  # array of shape (i_min - i_max,)
+        """[1, 0, 1]"""
+        pixel_min_val = dist_img[np.arange(pixel_min.size), pixel_min]  # Min distance retained
+        """[0, 5, 1]"""
+        unique, unique_counts = np.unique(pixel_min, return_counts=True)
+        """[0, 1], [1, 2]"""
+        is_unique = np.isin(pixel_min, unique[unique_counts == 1])
+        """[False, True, False]"""
+
+        for pixel in unique[unique_counts > 1]:
+            pixel_min_val_temp = pixel_min_val
+            """[0, 5, 1]"""
+            pixel_min_val_temp[pixel_min != pixel] = 200000
+            """[0, 2e5, 1]"""
+            pixel_ref = np.argmin(pixel_min_val_temp)
+            """0"""
+            is_unique[pixel_ref] = True
+            """[True, True, False]"""
+
+        # Removing the pixels that have been chosen to the list of available pixels
+        indices = indices[~np.isin(indices, pixel_min[is_unique])]
+
+        batch_order = np.zeros(i_max - i_min)
+        batch_order[is_unique] = pixel_min[is_unique]
+
+
+
+
