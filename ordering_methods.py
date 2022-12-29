@@ -197,85 +197,92 @@ def compute_square_euclidian_distance_matrix(img, img_ref):
 
 def transfer_with_dependence_euclidian_heuristic(img, img_smooth, img_ref, batch_size=400, seed=42):
     assert img.shape == img_ref, "Method only works for same shape images." \
-                                 "Please resample them so they have the same shape"
+                                 "Resample them so they have the same shape"
 
     n_pixels = np.product(img_ref.shape[:2])
-    indices = np.arange(n_pixels)
+    indices = pd.DataFrame(index=range(n_pixels), columns=["ind"], data=range(n_pixels))
 
     # Choosing pixels from img_ref at random
     rng = np.random.default_rng(seed)
-    indices_ref = rng.permutation(np.arange(n_pixels))
+    indices_ref = pd.DataFrame(index=range(n_pixels), columns=["ind"], data=rng.permutation(np.arange(n_pixels)))
 
-    full_order = []
+    # full_order: index = pixel in img, column = pixel in img_ref
+    full_order = pd.DataFrame(index=range(n_pixels), columns=["ind"], data=np.zeros(n_pixels))
 
     for k in range(n_pixels//batch_size+1):
         # Splitting the random order of pixels in different batch for faster processing
         i_min, i_max = k * batch_size, max((k + 1) * batch_size, n_pixels)
-        rows_ref, cols_ref = np.unravel_index(indices_ref[i_min:i_max], img_ref.shape[:2])
+        if i_min == i_max:
+            i_max += 1
 
-        rows, cols = np.unravel_index(indices, img.shape[:2])
+        indices_ref_batch = indices_ref.loc[i_min:i_max, "ind"]
 
-        # Computing distance matrices
-        dist_img = compute_square_euclidian_distance_matrix(img[rows, cols, :], img_ref[rows_ref, cols_ref, :])
-        """
-        [[1, 0, 0, 2],
-         [5, 7, 9, 8],
-         [3, 1, 1, 2]]
-        """
-        dist_smooth_img = compute_square_euclidian_distance_matrix(img_smooth[rows, cols, :], img_ref[rows_ref, cols_ref, :])
-        """
-        [[4, 1, 2, 3],
-         [6, 6, 6, 6],
-         [9, 0, 3, 0]]
-        """
+        while len(indices_ref_batch) > 0:
+            rows, cols = np.unravel_index(indices["ind"], img.shape[:2])
+            rows_ref, cols_ref = np.unravel_index(indices_ref_batch, img_ref.shape[:2])
 
-        # Finding the minimal distances for each row
-        dist_min = np.tile(dist_img.min(axis=1), (dist_img.shape[1], 1)).T
-        """
-        [[0, 0, 0, 0],
-         [0, 0, 0, 0],
-         [1, 1, 1, 1]]
-        """
+            # Computing distance matrices
+            dist_img = compute_square_euclidian_distance_matrix(img[rows, cols, :], img_ref[rows_ref, cols_ref, :])
+            """
+            [[1, 0, 0, 2],
+             [5, 7, 9, 8],
+             [3, 1, 1, 2]]
+            """
+            dist_smooth_img = compute_square_euclidian_distance_matrix(img_smooth[rows, cols, :], img_ref[rows_ref, cols_ref, :])
+            """
+            [[4, 1, 2, 3],
+             [6, 6, 6, 6],
+             [9, 0, 3, 0]]
+            """
 
-        dist_min = np.isclose(dist_img, dist_min)
-        """
-        [[False, True, True, False],
-         [True, False, False, False],
-         [False, True, True, False]]
-        """
+            # Finding the minimal distances for each row
+            dist_min = np.tile(dist_img.min(axis=1), (dist_img.shape[1], 1)).T
+            """
+            [[0, 0, 0, 0],
+             [0, 0, 0, 0],
+             [1, 1, 1, 1]]
+            """
 
-        # For distances that are equal, sorting by neighbour
-        dist_smooth_img[~dist_min] = 200000  # More than dist_max=3*255**2
-        """
-        [[2e5, 1, 2, 2e5],
-         [6, 2e5, 2e5, 2e5],
-         [2e5, 0, 3, 2e5]]
-        """
-        pixel_min = np.argmin(dist_smooth_img, axis=1)  # array of shape (i_min - i_max,)
-        """[1, 0, 1]"""
-        pixel_min_val = dist_img[np.arange(pixel_min.size), pixel_min]  # Min distance retained
-        """[0, 5, 1]"""
-        unique, unique_counts = np.unique(pixel_min, return_counts=True)
-        """[0, 1], [1, 2]"""
-        is_unique = np.isin(pixel_min, unique[unique_counts == 1])
-        """[False, True, False]"""
+            dist_min = np.isclose(dist_img, dist_min)
+            """
+            [[False, True, True, False],
+             [True, False, False, False],
+             [False, True, True, False]]
+            """
 
-        for pixel in unique[unique_counts > 1]:
-            pixel_min_val_temp = pixel_min_val
+            # For distances that are equal, sorting by neighbour
+            dist_smooth_img[~dist_min] = 200000  # More than dist_max=3*255**2
+            """
+            [[2e5, 1, 2, 2e5],
+             [6, 2e5, 2e5, 2e5],
+             [2e5, 0, 3, 2e5]]
+            """
+            pixel_min = np.argmin(dist_smooth_img, axis=1)  # array of shape (i_min - i_max,)
+            """[1, 0, 1]"""
+            pixel_min_val = dist_img[np.arange(pixel_min.size), pixel_min]  # Min distance retained
             """[0, 5, 1]"""
-            pixel_min_val_temp[pixel_min != pixel] = 200000
-            """[0, 2e5, 1]"""
-            pixel_ref = np.argmin(pixel_min_val_temp)
-            """0"""
-            is_unique[pixel_ref] = True
-            """[True, True, False]"""
+            unique, unique_counts = np.unique(pixel_min, return_counts=True)
+            """[0, 1], [1, 2]"""
+            is_unique = np.isin(pixel_min, unique[unique_counts == 1])
+            """[False, True, False]"""
 
-        # Removing the pixels that have been chosen to the list of available pixels
-        indices = indices[~np.isin(indices, pixel_min[is_unique])]
+            for pixel in unique[unique_counts > 1]:
+                pixel_min_val_temp = pixel_min_val
+                """[0, 5, 1]"""
+                pixel_min_val_temp[pixel_min != pixel] = 200000
+                """[0, 2e5, 1]"""
+                pixel_ref = np.argmin(pixel_min_val_temp)
+                """0"""
+                is_unique[pixel_ref] = True
+                """[True, True, False]"""
 
-        batch_order = np.zeros(i_max - i_min)
-        batch_order[is_unique] = pixel_min[is_unique]
+            matches = np.isin(indices.index, pixel_min[is_unique])  # TODO The is_unique should be redundant
 
+            # full_order: index = pixel in img, column = pixel in img_ref
+            full_order.loc[indices[matches]["ind"], "ind"] = indices_ref_batch[is_unique]["ind"]
 
+            # Removing the pixels from img that have been chosen to the list of available pixels
+            indices = indices[~matches]
+            indices.reset_index(drop=True, inplace=True)
 
-
+            indices_ref_batch = indices_ref_batch[~matches]
