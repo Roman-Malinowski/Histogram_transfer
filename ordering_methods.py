@@ -223,7 +223,7 @@ def transfer_with_dependence_euclidian_heuristic(img, img_smooth, img_ref, batch
     full_order = pd.DataFrame(index=range(n_pixels), columns=["ind"], data=np.zeros(n_pixels))
 
     for k in range(n_pixels // batch_size + 1):
-        print("\r%s / %s    " % (k+1, n_pixels // batch_size), end="")
+        print("\r%s / %s    " % (k+1, n_pixels // batch_size+1), end="")
         """
         Example:
         indices = 
@@ -327,7 +327,7 @@ def transfer_with_dependence_euclidian_heuristic(img, img_smooth, img_ref, batch
     img_copy = img.copy()
 
     rows, cols = np.unravel_index(full_order.index, img.shape[:2])
-    rows_ref, cols_ref = np.unravel_index(full_order["ind"].to_numpy(), img_ref.shape[:2])
+    rows_ref, cols_ref = np.unravel_index(full_order["ind"].to_numpy(dtype=int), img_ref.shape[:2])
 
     img_copy[rows, cols, :] = img_ref[rows_ref, cols_ref, :]
 
