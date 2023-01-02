@@ -392,8 +392,8 @@ def transfer_based_on_edges(img,  img_ref, kernel_size=5):
     4  False False False
     """
 
-    order_with_duplicates = pd.Series(df_edges.to_numpy().flatten()).duplicated().to_numpy().reshape(df_edges.shape)
-    order_ref_with_duplicates = pd.Series(df_ref_edges.to_numpy().flatten()).duplicated().to_numpy().reshape(df_ref_edges.shape)
+    order_with_duplicates = ~pd.Series(df_edges.to_numpy().flatten()).duplicated().to_numpy().reshape(df_edges.shape)
+    order_ref_with_duplicates = ~pd.Series(df_ref_edges.to_numpy().flatten()).duplicated().to_numpy().reshape(df_ref_edges.shape)
 
     n_pixels = img.shape[0]*img.shape[1]
 
