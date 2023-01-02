@@ -215,6 +215,7 @@ def transfer_with_dependence_euclidian_heuristic(img, img_smooth, img_ref, batch
     n_pixels = np.product(img_ref.shape[:2])
     indices = pd.DataFrame(index=range(n_pixels), columns=["ind"], data=range(n_pixels))
 
+    # TODO doing the match not at random but by crescent distance from the sides of the RGB cube
     # Choosing pixels from img_ref at random
     rng = np.random.default_rng(seed)
     indices_ref = pd.DataFrame(index=range(n_pixels), columns=["ind"], data=rng.permutation(np.arange(n_pixels)))
@@ -311,12 +312,12 @@ def transfer_with_dependence_euclidian_heuristic(img, img_smooth, img_ref, batch
                 is_unique[pixel_ref] = True
                 """[True, True, False]"""
 
-            matches = np.isin(indices.index, pixel_min[is_unique])  # TODO The is_unique should be redundant
-            """[True, False, True, False]"""
             # full_order: index = pixel in img, column = pixel in img_ref
             full_order.loc[indices.loc[pixel_min[is_unique], "ind"], "ind"] = indices_ref_batch[is_unique]
             """full_order.loc[[9, 4], "ind"] = [7, 3]"""
 
+            matches = np.isin(indices.index, pixel_min[is_unique])  # TODO The is_unique should be redundant
+            """[True, False, True, False]"""
             # Removing the pixels from img that have been chosen to the list of available pixels
             indices = indices[~matches]
             indices.reset_index(drop=True, inplace=True)
@@ -332,3 +333,93 @@ def transfer_with_dependence_euclidian_heuristic(img, img_smooth, img_ref, batch
     img_copy[rows, cols, :] = img_ref[rows_ref, cols_ref, :]
 
     return img_copy
+
+
+def transfer_based_on_edges(img,  img_ref, kernel_size=5):
+    assert img.shape == img_ref.shape, "Method only works for same shape images." \
+                                 "Resample them so they have the same shape"
+
+    img_smooth = cv2.GaussianBlur(img, (kernel_size, kernel_size), 0)
+    img_ref_smooth = cv2.GaussianBlur(img_ref, (kernel_size, kernel_size), 0)
+
+    if img.dtype == np.dtype('uint8'):
+        warnings.warn("img dtype is unsigned integer. Casting to int32 to compute euclidian distance")
+        img = img.astype(dtype=np.int32)
+        img_smooth = img_smooth.astype(dtype=np.int32)
+
+    if img_ref.dtype == np.dtype('uint8'):
+        warnings.warn("img_ref dtype is unsigned integer. Casting to int32 to compute euclidian distance")
+        img_ref = img_ref.astype(dtype=np.int32)
+        img_ref_smooth = img_ref_smooth.astype(dtype=np.int32)
+
+    edges_pivot_points = [[0, 0, 0], [255, 0, 0], [0, 255, 0], [0, 0, 255],
+                          [255, 255, 0], [255, 0, 255], [0, 255, 255], [255, 255, 255],
+                          [127, 0, 0], [127, 255, 0], [127, 0, 255], [127, 255, 255],
+                          [0, 127, 0], [255, 127, 0], [0, 127, 255], [255, 127, 255],
+                          [0, 0, 127], [255, 0, 127], [0, 255, 127], [255, 255, 127]]
+
+    df_edges = pd.DataFrame(columns=["E"+str(i) for i in range(len(edges_pivot_points))])
+    df_ref_edges = pd.DataFrame(columns=["E"+str(i) for i in range(len(edges_pivot_points))])
+
+    for i, p in enumerate(edges_pivot_points):
+        df = pd.DataFrame()
+        df_ref = pd.DataFrame()
+        df["D_img"] = np.square(img.reshape((-1, 3)) - np.array(p)).sum(axis=1)
+        df["D_smooth"] = np.square(img_smooth.reshape((-1, 3)) - np.array(p)).sum(axis=1)
+        df_ref["D_img"] = np.square(img_ref.reshape((-1, 3)) - np.array(p)).sum(axis=1)
+        df_ref["D_smooth"] = np.square(img_ref_smooth.reshape((-1, 3)) - np.array(p)).sum(axis=1)
+
+        df = df.sort_values(by=["D_img", "D_smooth"])
+        df_ref = df_ref.sort_values(by=["D_img", "D_smooth"])
+
+        df_edges["E" + str(i)] = df.index
+        df_ref_edges["E" + str(i)] = df_ref.index
+
+    """
+        E1  E2  E3
+    0    1   3   0
+    1    0   1   3
+    2    3   0   4
+    3    2   2   1
+    4    4   4   2
+    
+    order_with_duplicates:
+        E1  E2  E3
+    0  True  True  True
+    1  False False False
+    2  False False True
+    3  True  False False
+    4  False False False
+    """
+
+    order_with_duplicates = pd.Series(df_edges.to_numpy().flatten()).duplicated().to_numpy().reshape(df_edges.shape)
+    order_ref_with_duplicates = pd.Series(df_ref_edges.to_numpy().flatten()).duplicated().to_numpy().reshape(df_ref_edges.shape)
+
+    n_pixels = img.shape[0]*img.shape[1]
+
+    # TODO: is this ordering has a lot of biases ?
+    for i in range(len(edges_pivot_points)):
+        nan_tail = np.array((n_pixels - order_with_duplicates[:, i].sum())*[n_pixels])
+        df_edges["E" + str(i)] = np.append(df_edges["E" + str(i)][order_with_duplicates[:, i]].to_numpy(), nan_tail)
+
+        nan_tail = np.array((n_pixels - order_ref_with_duplicates[:, i].sum())*[n_pixels])
+        df_ref_edges["E" + str(i)] = np.append(df_ref_edges["E" + str(i)][order_ref_with_duplicates[:, i]].to_numpy(), nan_tail)
+    """
+        E1  E2  E3
+    0    1   3   0
+    1    2   5   4
+    2    5   5   5
+    3    5   5   5
+    4    5   5   5
+    """
+    order = df_edges.to_numpy().ravel()
+    order = np.unravel_index(order[order != n_pixels], img.shape[:2])
+
+    order_ref = df_ref_edges.to_numpy().ravel()
+    order_ref = np.unravel_index(order_ref[order_ref != n_pixels], img_ref.shape[:2])
+
+    img_copy = img.copy()
+    img_copy[order] = img_ref[order_ref]
+
+    return img_copy
+
