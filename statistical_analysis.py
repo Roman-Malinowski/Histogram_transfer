@@ -13,7 +13,7 @@ def cvt_ruderman(img_XYZ):
     C = np.array([[1, 1, 1], [1, 1, -2], [1, -1, 0]])
     
     img_LMS = np.matmul(img_XYZ, A.T)
-    log_LMS = np.log10(img_LMS)
+    log_LMS = np.log10(1+img_LMS)
     
     LMS2ruderman = np.matmul(C.T, B)  # B = B.T
     
@@ -30,7 +30,7 @@ def cvt_back_ruderman(ruderman):
     
     ruderman2LMS = np.matmul(B_, C)  # B_.T = B_
     log_LMS = np.matmul(ruderman, ruderman2LMS)
-    img_LMS = 10**log_LMS
+    img_LMS = 10**log_LMS - 1
     
     
     img_XYZ = np.matmul(img_LMS, np.linalg.inv(A.T))
