@@ -86,15 +86,15 @@ def explore_data_folder(root, list_extensions):
 
 
 if __name__=="__main__":
-    # prefix = "/work/scratch/malinoro/histogram_transfer/data"
-    prefix = "/Users/roman/Code/Histogram_transfer/data/"
+    prefix = "/work/OT/siaa/3D/Development/malinoro/Histogram_transfer/data"
+    # prefix = "/Users/roman/Code/Histogram_transfer/data/"
 
     sources = [source for source in os.listdir(prefix) if op.isdir(op.join(prefix, source))]
-    list_extensions = [".ppm", ".tiff", ".jpg"]
+    list_extensions = [".ppm", ".tiff", ".jpg", "png"]
 
     list_paths = explore_data_folder(prefix, list_extensions)
     print(list_paths)
     
     df = compare_covariances(list_paths)
-    print(df)
+    df.to_csv(op.join(prefix, "df_cov.csv"))
 
